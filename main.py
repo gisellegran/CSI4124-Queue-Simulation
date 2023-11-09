@@ -48,6 +48,8 @@ class SSQSimulation:
         #statistical accumulators
         self.customersArrived = 0 # number of customers who have arrive in queue
         self.customersServed = 0 #number of customers served, i.e. number of departures
+        self.totalWaitTime = 0 
+        self.maxWaitTime = 0
 
         #create first arrival event
         self.scheduleArrival()
