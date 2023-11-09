@@ -8,6 +8,10 @@ class Customer:
         self.customerNumber = customerNumber
         self.arrivalTime = arrivalTime
 
+class Teller: 
+    def __init__(self, avgServiceTime):
+        self.avgServiceTime = avgServiceTime
+
 #event (type, time, customer)
 class Event:
     def __init__(self, eventType: str, eventTime: int, customer: Customer) -> None:
