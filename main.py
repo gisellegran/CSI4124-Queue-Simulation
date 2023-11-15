@@ -9,45 +9,27 @@ class Entity:
         pass
 #customer (arrival, id)
 class Customer(Entity):
-    def __init__(self, arrivalTime : int, id=-1) -> None:
+    def __init__(self, arrivalTime, id=-1) -> None:
         super().__init__(id)
         self.arrivalTime = arrivalTime
+        self.departureTime = -1
         self.teller = None #teller who served the customer once they get served
+   
+    def __repr__(self) -> str:
+        return f"Customer({self.arrivalTime=}, {self.departureTime=}, {self.teller.id=})"
 
 class Teller(Entity): 
-    def __init__(self, shift_start, shift_end, avgServiceTime, id=-1):
+    def __init__(self, shiftStart, shiftEnd, avgServiceRate, id=-1):
         super().__init__(id)
-        self.avgServiceTime = avgServiceTime
-        self.shift_start = shift_start
-        self.shift_end = shift_end
-        
-class Tellers: 
-    def __init__(self):
-        self.tellers = []
+        self.avgServiceRate = avgServiceRate
+        self.shiftStart = shiftStart
+        self.shiftEnd = shiftEnd
+        self.busyTime = 0
+        self.currentCustomer = None #customer who the teller is currently serving
     
-    def addTeller(self, teller : Teller):
-        self.tellers.append(teller)
-
-    def getAvailableTeller(self):
-        for t in self.tellers: 
-            if t.isAvailable :
-                return t
-        return None
+    def __repr__(self) -> str:
+        return f"Teller({self.avgServiceRate=}, {self.shiftStart=}, {self.shiftEnd=}, {self.busyTime=}, {self.currentCustomer=})"
     
-    #generate random service time from normal distribution
-    def generateServiceTime(self) -> float:
-        result = np.random.default_rng().normal(self.meanServiceTime, self.sdServiceTime)
-        return result
-
-    def serveCustomer(self, customer : Customer):
-        #get next available teller 
-        teller = self.getAvailableTeller()
-
-        #generate service time based on teller average service time 
-        #variance based on variance of tasks
-        #avgService time based on teller experience
-        return 
-        #return service time 
 
 
 #event (type, time, entity)
@@ -57,6 +39,14 @@ class Event:
         self.eventType = eventType
         self.eventTime = eventTime
         self.entity = entity
+    
+    def __repr__(self) -> str: 
+        #return f"Event({self.eventType=}, {self.eventTime=}, {self.entity.id=})"
+        return f"({self.eventType}, {self.eventTime}, {self.entity.__class__}:{self.entity.id})"
+
+    
+    def __str__(self) -> str: 
+        return f"({self.eventType}, {self.eventTime}, {self.entity.__class__}:{self.entity.id})"
 
     #comparator functions for priority ordering
     def __gt__(self, other):
@@ -65,12 +55,12 @@ class Event:
     def __eq__(self, other):
         return self.eventTime == other.eventTime
 
-class SSQSimulation:
+#single queue multiserver
+class SQMSSimulation:
     #input parameters are statistical parameters for random generation of interarrival and service time 
     # along with number of customers to serve (stopping criteria of the simulation) 
-    def __init__(self, meanArrivalRate, sdServiceTime, tellerSchedule, closeTime) -> None:
-        self.meanArrivalRate = meanArrivalRate
-        self.sdServiceTime = sdServiceTime #TO DO: find value 
+    def __init__(self, meanArrivalRate, tellerSchedule, closeTime) -> None:
+        self.meanArrivalRate = meanArrivalRate 
         self.tellerSchedule = tellerSchedule
         self.closeTime = closeTime #stopping criteria - number of total customers to serve
 
@@ -84,94 +74,147 @@ class SSQSimulation:
         self.numInService = 0 #number of customers currently being served 
         #entity lists
         self.customerQueue = []
-        self.tellers = [] #list of available tellers
+        self.availableTellers = [] #list of available tellers
+        self.allTellers = [] 
         #future event list
         self.futureEventList = queue.PriorityQueue()
         #statistical accumulators
         self.customersArrived = 0 # number of customers who have arrive in queue
-        self.tellersArrived = 0 #  number of tellers who have clocked in 
         self.customersServed = 0 #number of customers served, i.e. number of departures
+        self.totalQueueLength = 0 #sum of queue length at every minute
+        self.totalSystemTime = 0
         self.totalWaitTime = 0 
+        self.maxQueueLength = 0 
         self.maxWaitTime = 0
 
         #add teller arrival and departure to the future event list 
         self.scheduleTellers()
         #create first arrival event
-        self.scheduleArrival()
+        self.scheduleCustomerArrival()
         #start the simulation
         self.advanceTime()
     
+    #print results to console
+    def outputResults(self):
+
+        serverUtilization = 0
+        for t in self.allTellers:
+            serverUtilization += t.busyTime/(t.shiftEnd - t.shiftStart)
+        serverUtilization /= len(self.allTellers)
+
+        print(f"Customers remaining in queue: %.2f\n" % len(self.customerQueue))
+        print(f"Time-average server utilization: %.2f\n" % serverUtilization)
+        print(f"Average system time: %.2f\n" % self.totalSystemTime/self.customersServed)
+        print(f"Average wait time: %.2f\n" % self.totalWaiTime/self.customersServed)
+        print(f"Average queue length %.2f\n" % self.totalQueueLength/self.closeTime)
     #advance the simualtion time - main program function
     def advanceTime(self) -> None:
-        while self.customersServed < self.customersToServe:
+        while self.clock < self.closeTime:
             #get next event form the future event list
             #since futureEventList is a priority queue based on event time
             #the imminent event will be returned by .get()
             nextEvent = self.futureEventList.get() 
+            deltaT = nextEvent.eventTime - self.clock
 
-            self.clock = nextEvent.eventTime #advance time
+            print(self.futureEventList.queue)
+            #update statistical accumulators
+            self.totalQueueLength = deltaT * len(self.customerQueue)
+            
+            #advance time
+            self.clock = nextEvent.eventTime 
+            
+            #handle event
             if nextEvent.eventType == "customer arrival":
                 self.handleCustomerArrival(nextEvent)
             elif nextEvent.eventType == "customer departure":
                 self.handleCustomerDeparture(nextEvent)
+            elif nextEvent.eventType == "scheduled teller departure":
+                self.scheduleTellerDeparture(nextEvent)
             elif nextEvent.eventType == "teller arrival":
                 self.handleTellerArrival(nextEvent)
             else :
                 self.handleTellerDeparture(nextEvent)
+        
                 
     def handleTellerArrival(self, event: Event) -> None:
         teller = event.entity
-        if teller.id < 
+
+        print(f"Teller {teller.id} has arrived at {self.clock}")
         #add teller to active teller list 
-        self.tellers.append(teller)
+        self.availableTellers.append(teller)
+        self.allTellers.append(teller)
 
         #if there's a customer in the queue, serve them
         if len(self.customerQueue) > 0:
             self.scheduleDeparture()
+
+    def scheduleTellerDeparture(self, event: Event) -> None:
+        teller = event.entity
+
+        #if the teller is still serving a customer, 
+        #schedule their departure for when the customer departs
+        if teller.currentCustomer is None:
+            self.futureEventList.put(Event("teller departure",teller.shiftEnd, teller)) #teller.shiftEnd = self.clock in this case
+        else:
+            customerDepartureTime = teller.customer.departureTime
+            print(f"{teller.id} was busy")
+            self.futureEventList.put(Event("teller departure",customerDepartureTime, teller))
 
     def handleTellerDeparture(self, event: Event) -> None:
         teller = event.entity
 
-        #add teller to active teller list 
-        self.tellers.remove(teller)
+        print(f"Teller {teller.id} has departed at {self.clock}")
 
-        #if there's a customer in the queue, serve them
-        if len(self.customerQueue) > 0:
-            self.scheduleDeparture()
+        #remove teller from active teller list 
+        self.availableTellers.remove(teller)
 
     def handleCustomerArrival(self, event: Event) -> None:
-        customer = event.customer
-        #set customer number
-        customer.customerNumber = self.customersArrived+1
+        customer = event.entity
+        
+        #increment number of arrivals
+        self.customersArrived += 1
+        #set customer id
+        customer.id = self.customersArrived
+       
+        print(f"Customer {customer.id} has arrived at {self.clock}")
+        
         #add customer to the queue
         self.customerQueue.append(customer)
         
         #if server is unoccupied, start processing customer 
-        if len(self.tellers)>0: 
-            self.scheduleDeparture()
+        if len(self.availableTellers)>0: 
+            self.scheduleCustomerDeparture()
 
-        #increment number of arrivals
-        self.customersArrived += 1
+        
 
         #schedule next arrival 
         self.scheduleCustomerArrival()
 
+        #modify statistical accumulators
+        if len(self.customerQueue) > self.maxQueueLength:
+            self.maxQueueLength = len(self.customerQueue)
+
     def handleCustomerDeparture(self, event: Event) -> None:
-        customer = event.customer
+        customer = event.entity
+        teller = customer.teller
         
         #print custer service time
         systemTime = customer.departureTime - customer.arrivalTime
-        print(f'Total system time for customer "{customer.customerNumber}": %.2f sec\n' % systemTime)
+        print(f'Total system time for customer "{customer.id}": %.2f sec\n' % systemTime)
         
+        #set tellers currentCustomer to None
+        teller.currentCustomer = None
         #return teller to available teller list
-        self.tellers.append(customer.teller)
         self.numInService -= 1
+        self.availableTellers.append(teller)
         
         #if customer are waiting, schedule next departure
         if len(self.customerQueue) > 0:
             self.scheduleDeparture()  
         
+        #modify statistical accumulators
         self.customersServed += 1
+        self.totalSystemTime += systemTime
 
     #add arrival of new customer event to the FEL
     def scheduleCustomerArrival(self) -> None:
@@ -182,7 +225,7 @@ class SSQSimulation:
             arrivalTime = self.clock + self.generateInterarrivalTime()
 
         #add arrival event to the future event list and create an associated customer
-        self.futureEventList.put(Event("arrival",arrivalTime, Customer(arrivalTime = arrivalTime)))
+        self.futureEventList.put(Event("customer arrival",arrivalTime, Customer(arrivalTime = arrivalTime, )))
     
     #add event for the departure of current customer to the FEL 
     #analogus to serving customer 
@@ -191,68 +234,108 @@ class SSQSimulation:
         customer = self.customerQueue.pop(0)
         waitTime = self.clock - customer.arrivalTime
         #print their wait time 
-        print(f'Waiting time for customer "{customer.customerNumber}": %.2f sec' % waitTime)
+        print(f'Waiting time for customer "{customer.id}": %.2f sec' % waitTime)
+
+        #update statistical accumulators 
+        self.totalWaitTime += waitTime 
 
         #get available teller
-        teller = self.tellers.pop(0)
-
-        #generate customer departure time
-        departureTime = self.clock+self.generateServiceTime(teller.avgServiceTime)
-        customer.departureTime = departureTime
-
+        teller = self.availableTellers.pop(0)
         customer.teller = teller
 
+        #generate customer departure time
+        serviceTime = self.generateServiceTime(teller.avgServiceRate)
+        departureTime = self.clock+ serviceTime
+        customer.departureTime = departureTime
+
+        teller.busyTime += serviceTime
+
         #add departure event to the FEL
-        self.futureEventList.put(Event("departure",departureTime, customer))
+        self.futureEventList.put(Event("customer departure",departureTime, customer))
         self.numInService += 1
 
     def scheduleTellers(self):
         for t in self.tellerSchedule:
-            #add arrival event to the FEL at tellers shift start time
-            shift_start = t.start_time
-            shift_end = t.end_time
+            shiftStart = t.shiftStart
+            shiftEnd = t.shiftEnd
             #lunch break starts midway through shift
-            lunch_start = shift_start+(shift_start-shift_end)/2.0
+            lunch_start = shiftStart+(shiftEnd-shiftStart)/2.0
             #lunch is 30 minutes
             lunch_end = lunch_start + 0.5
-            #add arrival event for clock in 
-            self.futureEventList.put(Event("teller arrival",shift_start, t))
+            
+            #add arrival event to the FEL at tellers shift start time
+            self.futureEventList.put(Event("teller arrival",shiftStart, t))
             #add departure event to FEL to leave for lunch break
-            self.futureEventList.put(Event("teller departure",lunch_start, t))        
+            self.futureEventList.put(Event("scheduled teller departure",lunch_start, t))        
             #add arrival event to FEL for return from lunch break
             self.futureEventList.put(Event("teller arrival",lunch_end, t))                    
             #add departure event to FEL for clock out
-            self.futureEventList.put(Event("teller departure",shift_end, t))      
-                                         
+            self.futureEventList.put(Event("scheduled teller departure",shiftEnd, t))      
+
     #generate random interarrival time from normal distribution
     def generateInterarrivalTime(self) -> float:
-        result = np.random.default_rng().exponential(1/self.meanArrivalRate)
+        _lambda = self.meanArrivalRate(self.clock)
+        if _lambda > 0 :
+            _lambda = 1/_lambda
+        else: 
+            _lambda = 1E9
+        result = np.random.default_rng().exponential(_lambda)
         return result
     
     #generate random service time from normal distribution
-    def generateServiceTime(self, avgServiceTime) -> float:
-        result = np.random.default_rng().normal(self.avgServiceTime, self.sdServiceTime)
+    def generateServiceTime(self, avgServiceRate) -> float:
+        result = np.random.default_rng().exponential(1/avgServiceRate)
         return result
 
 
 
 def main():
-    #given project parameters (time in seconds)
-    meanInterarrivalTime = 30
-    sdInterarrivalTime = 6
-    meanServiceTime =  20
-    sdServiceTime = 4
-    customersToServe = 15
+    lvl1_serviceRate = 0.2
+    lvl2_serviceRate = 0.4
 
-    lvl1_serviceTime = 0.10
-    lvl2_serviceTime = 0.20
-
-    tellers = [
-        Teller(0,8,lvl1_serviceTime),
-        Teller(2,10,lvl2_serviceTime),
+    tellerSchedule = [
+        Teller(0,8*60,lvl1_serviceRate,1),
+        Teller(2,10*60,lvl2_serviceRate,2),
     ]
 
-    sim = SSQSimulation(meanInterarrivalTime, sdInterarrivalTime, meanServiceTime, sdServiceTime, customersToServe)
+    def meanArrivalRate(t): 
+        if t <= 5 * 6 * 1:
+            lamda = 0
+        elif t <= 5 * 6 * 2:
+             lamda = 0.1
+        elif t <= 5 * 6 * 3:
+            lamda = 0.18
+        elif t <= 5 * 6 * 4:
+            lamda = 0.26
+        elif t <= 5 * 6 * 5:
+            lamda = 0.375
+        elif t <= 5 * 6 * 6:
+            lamda = 0.4
+        elif t <= 5 * 6 * 7:
+            lamda = 0.42
+        elif t <= 5 * 6 * 8:
+            lamda = 0.46
+        elif t <= 5 * 6 * 9:
+            lamda = 0.46
+        elif t <= 5 * 6 * 10:
+            lamda = 0.44
+        elif t <= 5 * 6 * 11:
+            lamda = 0.42
+        elif t <= 5 * 6 * 12:
+            lamda = 0.375
+        elif t <= 5 * 6 * 13:
+            lamda = 0.29
+        elif t <= 5 * 6 * 14:
+            lamda = 0.29
+        elif t <= 5 * 6 * 15:
+            lamda = 0.15
+        elif t <= 5 * 6 * 16:
+            lamda = 0.15
+        return lamda
+
+    closeTime = 10 * 60 #10 hours of open time 
+
+    sim = SQMSSimulation(meanArrivalRate, tellerSchedule, closeTime)
     sim.start()
 
 
