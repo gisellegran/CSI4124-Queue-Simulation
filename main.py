@@ -29,7 +29,6 @@ class Teller(Entity):
     
     def __repr__(self) -> str:
         return f"Teller({self.avgServiceRate=}, {self.shiftStart=}, {self.shiftEnd=}, {self.busyTime=}, {self.currentCustomer=})"
-    
 
 
 #event (type, time, entity)
@@ -59,8 +58,9 @@ class Event:
 class SQMSSimulation:
     #input parameters are statistical parameters for random generation of interarrival and service time 
     # along with number of customers to serve (stopping criteria of the simulation) 
-    def __init__(self, meanArrivalRate, tellerSchedule, closeTime) -> None:
+    def __init__(self, meanArrivalRate, maxArrivalRate, tellerSchedule, closeTime) -> None:
         self.meanArrivalRate = meanArrivalRate 
+        self.maxArrivalRate = maxArrivalRate
         self.tellerSchedule = tellerSchedule
         self.closeTime = closeTime #stopping criteria - number of total customers to serve
 
@@ -146,7 +146,7 @@ class SQMSSimulation:
 
         #if there's a customer in the queue, serve them
         if len(self.customerQueue) > 0:
-            self.scheduleDeparture()
+            self.scheduleCustomerDeparture()
 
     def scheduleTellerDeparture(self, event: Event) -> None:
         teller = event.entity
@@ -210,7 +210,7 @@ class SQMSSimulation:
         
         #if customer are waiting, schedule next departure
         if len(self.customerQueue) > 0:
-            self.scheduleDeparture()  
+            self.scheduleCustomerDeparture()  
         
         #modify statistical accumulators
         self.customersServed += 1
@@ -274,13 +274,22 @@ class SQMSSimulation:
 
     #generate random interarrival time from normal distribution
     def generateInterarrivalTime(self) -> float:
-        _lambda = self.meanArrivalRate(self.clock)
-        if _lambda > 0 :
-            _lambda = 1/_lambda
-        else: 
-            _lambda = 1E9
-        result = np.random.default_rng().exponential(_lambda)
-        return result
+        
+        tempClock = self.clock
+        
+        while True: 
+            #generate interarrival time E
+            E = np.random.default_rng().exponential(self.maxArrivalRate)
+            
+            arrivalRate = self.meanArrivalRate(tempClock)
+            U = np.random.default_rng().uniform(0,1)
+            
+            if U <= arrivalRate/self.maxArrivalRate :
+                break
+            
+            tempClock += E
+                
+        return E
     
     #generate random service time from normal distribution
     def generateServiceTime(self, avgServiceRate) -> float:
@@ -299,43 +308,43 @@ def main():
     ]
 
     def meanArrivalRate(t): 
-        if t <= 5 * 6 * 1:
-            lamda = 0
-        elif t <= 5 * 6 * 2:
+        lamda = 0  
+        if t > 5 * 6 * 1:
              lamda = 0.1
-        elif t <= 5 * 6 * 3:
+        elif t > 5 * 6 * 2:
             lamda = 0.18
-        elif t <= 5 * 6 * 4:
+        elif t > 5 * 6 * 3:
             lamda = 0.26
-        elif t <= 5 * 6 * 5:
+        elif t > 5 * 6 * 4:
             lamda = 0.375
-        elif t <= 5 * 6 * 6:
+        elif t > 5 * 6 *5:
             lamda = 0.4
-        elif t <= 5 * 6 * 7:
+        elif t > 5 * 6 * 6:
             lamda = 0.42
-        elif t <= 5 * 6 * 8:
+        elif t > 5 * 6 * 7:
             lamda = 0.46
-        elif t <= 5 * 6 * 9:
-            lamda = 0.46
-        elif t <= 5 * 6 * 10:
+        elif t > 5 * 6 * 8:
             lamda = 0.44
-        elif t <= 5 * 6 * 11:
+        elif t > 5 * 6 * 9:
             lamda = 0.42
-        elif t <= 5 * 6 * 12:
+        elif t > 5 * 6 * 10:
             lamda = 0.375
-        elif t <= 5 * 6 * 13:
+        elif t > 5 * 6 * 11:
             lamda = 0.29
-        elif t <= 5 * 6 * 14:
-            lamda = 0.29
-        elif t <= 5 * 6 * 15:
+        elif t > 5 * 6 * 12:
+            lamda = 0.26
+        elif t > 5 * 6 * 13:
+            lamda = 0.225
+        elif t > 5 * 6 * 14:
             lamda = 0.15
-        elif t <= 5 * 6 * 16:
-            lamda = 0.15
+        elif t > 5 * 6 * 15:
+            lamda = 0.1
         return lamda
 
+    maxArrivalRate = 0.46
     closeTime = 10 * 60 #10 hours of open time 
 
-    sim = SQMSSimulation(meanArrivalRate, tellerSchedule, closeTime)
+    sim = SQMSSimulation(meanArrivalRate, maxArrivalRate, tellerSchedule, closeTime)
     sim.start()
 
 
