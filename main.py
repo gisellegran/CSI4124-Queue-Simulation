@@ -115,8 +115,7 @@ class SQMSSimulation:
             #the imminent event will be returned by .get()
             nextEvent = self.futureEventList.get() 
             deltaT = nextEvent.eventTime - self.clock
-
-            print(self.futureEventList.queue)
+            
             #update statistical accumulators
             self.totalQueueLength = deltaT * len(self.customerQueue)
             
@@ -176,7 +175,7 @@ class SQMSSimulation:
         #set customer id
         customer.id = self.customersArrived
        
-        print(f"Customer {customer.id} has arrived at {self.clock}")
+        print(f"Arrival of customer {customer.id}: {self.clock}\n")
         
         #add customer to the queue
         self.customerQueue.append(customer)
@@ -200,10 +199,11 @@ class SQMSSimulation:
         
         #print custer service time
         systemTime = customer.departureTime - customer.arrivalTime
-        print(f'Total system time for customer "{customer.id}": %.2f sec\n' % systemTime)
+        print(f'Total system time for customer "{customer.id}": %.2f min\n' % systemTime)
         
         #set tellers currentCustomer to None
         teller.currentCustomer = None
+        
         #return teller to available teller list
         self.numInService -= 1
         self.availableTellers.append(teller)
@@ -234,7 +234,7 @@ class SQMSSimulation:
         customer = self.customerQueue.pop(0)
         waitTime = self.clock - customer.arrivalTime
         #print their wait time 
-        print(f'Waiting time for customer "{customer.id}": %.2f sec' % waitTime)
+        print(f'Waiting time for customer "{customer.id}": %.2f min' % waitTime)
 
         #update statistical accumulators 
         self.totalWaitTime += waitTime 
@@ -259,9 +259,9 @@ class SQMSSimulation:
             shiftStart = t.shiftStart
             shiftEnd = t.shiftEnd
             #lunch break starts midway through shift
-            lunch_start = shiftStart+(shiftEnd-shiftStart)/2.0
+            lunch_start = shiftStart+(shiftEnd-shiftStart)/2
             #lunch is 30 minutes
-            lunch_end = lunch_start + 0.5
+            lunch_end = lunch_start + 30
             
             #add arrival event to the FEL at tellers shift start time
             self.futureEventList.put(Event("teller arrival",shiftStart, t))
@@ -275,21 +275,26 @@ class SQMSSimulation:
     #generate random interarrival time from normal distribution
     def generateInterarrivalTime(self) -> float:
         
-        tempClock = self.clock
         
+        interTime = 0
         while True: 
-            #generate interarrival time E
-            E = np.random.default_rng().exponential(self.maxArrivalRate)
+            #get current avg arrival rate
+            arrivalRate = self.meanArrivalRate(self.clock+interTime)
             
-            arrivalRate = self.meanArrivalRate(tempClock)
+            #generate interarrival time E
+            E = np.random.default_rng().exponential(1/self.maxArrivalRate)
+            
             U = np.random.default_rng().uniform(0,1)
             
+            #add E to total interarrival time
+            interTime += E
+
             if U <= arrivalRate/self.maxArrivalRate :
                 break
             
-            tempClock += E
+            
                 
-        return E
+        return interTime
     
     #generate random service time from normal distribution
     def generateServiceTime(self, avgServiceRate) -> float:
@@ -300,11 +305,11 @@ class SQMSSimulation:
 
 def main():
     lvl1_serviceRate = 0.2
-    lvl2_serviceRate = 0.4
+    lvl2_serviceRate = 0.1
 
     tellerSchedule = [
         Teller(0,8*60,lvl1_serviceRate,1),
-        Teller(2,10*60,lvl2_serviceRate,2),
+        Teller(2*60,10*60,lvl2_serviceRate,2),
     ]
 
     def meanArrivalRate(t): 
