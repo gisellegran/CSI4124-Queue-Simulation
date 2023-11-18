@@ -6,7 +6,9 @@ import queue
 class Entity: 
     def __init__(self, id=-1):
         self.id = id
-        pass
+    
+    def isCustomer(self):
+        return isinstance(self,Customer)
 #customer (arrival, id)
 class Customer(Entity):
     def __init__(self, arrivalTime, id=-1) -> None:
@@ -16,19 +18,27 @@ class Customer(Entity):
         self.teller = None #teller who served the customer once they get served
    
     def __repr__(self) -> str:
-        return f"Customer({self.arrivalTime=}, {self.departureTime=}, {self.teller.id=})"
+        return f"Customer({self.id=}, {self.arrivalTime=}, {self.departureTime=}, {self.teller.id=})"
 
 class Teller(Entity): 
-    def __init__(self, shiftStart, shiftEnd, avgServiceRate, id=-1):
+    def __init__(self, shiftStart, shiftEnd, lunchStart, avgServiceRate, id=-1):
         super().__init__(id)
         self.avgServiceRate = avgServiceRate
         self.shiftStart = shiftStart
         self.shiftEnd = shiftEnd
+        self.lunchStart = lunchStart
         self.busyTime = 0
         self.currentCustomer = None #customer who the teller is currently serving
+        self.lunchTaken = False
+
+    def getNextDeparture(self, time):
+        if time < self.lunchStart:
+            return self.lunchStart
+        else:
+            return self.shiftEnd
     
     def __repr__(self) -> str:
-        return f"Teller({self.avgServiceRate=}, {self.shiftStart=}, {self.shiftEnd=}, {self.busyTime=}, {self.currentCustomer=})"
+        return f"Teller({self.shiftStart=}, {self.shiftEnd=}, {self.busyTime=}, {self.currentCustomer=})"
 
 
 #event (type, time, entity)
@@ -38,6 +48,9 @@ class Event:
         self.eventType = eventType
         self.eventTime = eventTime
         self.entity = entity
+
+    def isDeparture(self):
+        return "departure" in self.eventType
     
     def __repr__(self) -> str: 
         #return f"Event({self.eventType=}, {self.eventTime=}, {self.entity.id=})"
@@ -45,14 +58,42 @@ class Event:
 
     
     def __str__(self) -> str: 
-        return f"({self.eventType}, {self.eventTime}, {self.entity.__class__}:{self.entity.id})"
+        return f"({self.eventType}, id:{self.entity.id}, {self.eventTime}, )"
 
     #comparator functions for priority ordering
-    def __gt__(self, other):
-        return self.eventTime > other.eventTime
+    def __lt__(self, other):
+        entity1 = self.entity
+        entity2 = other.entity
+        if entity1.__class__ != entity2.__class__ and self.isDeparture() and other.isDeparture():
+            
+            if entity1.isCustomer():
+                if entity1 == entity2.currentCustomer:
+                    return True
+            else:
+                if entity2 == entity1.currentCustomer:
+                    return False
+                # if self.clock > entity2.lunchStart : 
+                #     nextTellerDeparture = entity2.shiftEnd
+                # else: 
+                #     nextTellerDeparture = entity2.lunchStart
+                
+                # if entity1.departureTime < nextTellerDeparture:
+                #     return Tru
+
+        # if self.eventType == "customer departure" and other.eventType == "teller departure":
+        #     if other.entity.currentCustomer == self.entity and :
+        #         return True
+        
+        # if other.eventType == "customer departure" and self.eventType == "teller departure":
+        #     if self.entity.currentCustomer == other.entity:
+        #         return False
+
+        return self.eventTime < other.eventTime
+        
 
     def __eq__(self, other):
-        return self.eventTime == other.eventTime
+
+        return self.eventTime == other.eventTime and self.entity == other.entity
 
 #single queue multiserver
 class SQMSSimulation:
@@ -104,9 +145,10 @@ class SQMSSimulation:
 
         print(f"Customers remaining in queue: %.2f\n" % len(self.customerQueue))
         print(f"Time-average server utilization: %.2f\n" % serverUtilization)
-        print(f"Average system time: %.2f\n" % self.totalSystemTime/self.customersServed)
-        print(f"Average wait time: %.2f\n" % self.totalWaiTime/self.customersServed)
-        print(f"Average queue length %.2f\n" % self.totalQueueLength/self.closeTime)
+        print(f"Average system time: %.2f\n" % (self.totalSystemTime/self.customersServed))
+        print(f"Average wait time: %.2f\n" % (self.totalWaitTime/self.customersServed))
+        print(f"Average queue length %.2f\n" % (self.totalQueueLength/self.closeTime))
+   
     #advance the simualtion time - main program function
     def advanceTime(self) -> None:
         while self.clock < self.closeTime:
@@ -117,7 +159,7 @@ class SQMSSimulation:
             deltaT = nextEvent.eventTime - self.clock
             
             #update statistical accumulators
-            self.totalQueueLength = deltaT * len(self.customerQueue)
+            self.totalQueueLength += deltaT * len(self.customerQueue)
             
             #advance time
             self.clock = nextEvent.eventTime 
@@ -133,12 +175,15 @@ class SQMSSimulation:
                 self.handleTellerArrival(nextEvent)
             else :
                 self.handleTellerDeparture(nextEvent)
+
+        
+        self.outputResults()
         
                 
     def handleTellerArrival(self, event: Event) -> None:
         teller = event.entity
 
-        print(f"Teller {teller.id} has arrived at {self.clock}")
+        print(f'Teller "{teller.id}" has arrived at %.2f min' % self.clock)
         #add teller to active teller list 
         self.availableTellers.append(teller)
         self.allTellers.append(teller)
@@ -153,16 +198,27 @@ class SQMSSimulation:
         #if the teller is still serving a customer, 
         #schedule their departure for when the customer departs
         if teller.currentCustomer is None:
-            self.futureEventList.put(Event("teller departure",teller.shiftEnd, teller)) #teller.shiftEnd = self.clock in this case
+            # if the time is the tellers shift end, schedule end fo shift
+            if self.clock == teller.shiftEnd: 
+                departureTime = teller.shiftEnd
+            else: # its lunch time
+                departureTime = teller.lunchStart
         else:
-            customerDepartureTime = teller.customer.departureTime
-            print(f"{teller.id} was busy")
-            self.futureEventList.put(Event("teller departure",customerDepartureTime, teller))
+            #departure time is one mili minute after customer daprture time 
+            departureTime = teller.currentCustomer.departureTime
+            print(f"{teller.id} was busy\n")
+
+        self.futureEventList.put(Event("teller departure",departureTime, teller)) 
 
     def handleTellerDeparture(self, event: Event) -> None:
         teller = event.entity
+        if teller.lunchTaken == False:
+            teller.lunchTaken = True
+            #add arrival event to FEL for return from lunch break, 30 minutes later
+            self.futureEventList.put(Event("teller arrival",self.clock+30, teller))  
+            
 
-        print(f"Teller {teller.id} has departed at {self.clock}")
+        print(f"Teller {teller.id} has departed at {self.clock}\n")
 
         #remove teller from active teller list 
         self.availableTellers.remove(teller)
@@ -175,7 +231,7 @@ class SQMSSimulation:
         #set customer id
         customer.id = self.customersArrived
        
-        print(f"Arrival of customer {customer.id}: {self.clock}\n")
+        print(f'Arrival of customer "{customer.id}": %.2f min\n' % self.clock)
         
         #add customer to the queue
         self.customerQueue.append(customer)
@@ -183,8 +239,6 @@ class SQMSSimulation:
         #if server is unoccupied, start processing customer 
         if len(self.availableTellers)>0: 
             self.scheduleCustomerDeparture()
-
-        
 
         #schedule next arrival 
         self.scheduleCustomerArrival()
@@ -199,7 +253,8 @@ class SQMSSimulation:
         
         #print custer service time
         systemTime = customer.departureTime - customer.arrivalTime
-        print(f'Total system time for customer "{customer.id}": %.2f min\n' % systemTime)
+        print(f'Total system time for customer "{customer.id}": %.2f min' % systemTime)
+        print(f'Served by teller "{teller.id}"\n')
         
         #set tellers currentCustomer to None
         teller.currentCustomer = None
@@ -207,9 +262,15 @@ class SQMSSimulation:
         #return teller to available teller list
         self.numInService -= 1
         self.availableTellers.append(teller)
+
+        
         
         #if customer are waiting, schedule next departure
-        if len(self.customerQueue) > 0:
+        if teller.lunchTaken == False and self.clock > teller.lunchStart:
+            pass
+        elif self.clock > teller.shiftEnd:
+            pass
+        elif len(self.customerQueue) > 0 :
             self.scheduleCustomerDeparture()  
         
         #modify statistical accumulators
@@ -224,8 +285,10 @@ class SQMSSimulation:
         else:
             arrivalTime = self.clock + self.generateInterarrivalTime()
 
-        #add arrival event to the future event list and create an associated customer
-        self.futureEventList.put(Event("customer arrival",arrivalTime, Customer(arrivalTime = arrivalTime, )))
+        #only schedule customer if they arrive before close time of the bank
+        if arrivalTime < self.closeTime:
+            #add arrival event to the future event list and create an associated customer
+            self.futureEventList.put(Event("customer arrival",arrivalTime, Customer(arrivalTime = arrivalTime, )))
     
     #add event for the departure of current customer to the FEL 
     #analogus to serving customer 
@@ -235,13 +298,15 @@ class SQMSSimulation:
         waitTime = self.clock - customer.arrivalTime
         #print their wait time 
         print(f'Waiting time for customer "{customer.id}": %.2f min' % waitTime)
-
+        
         #update statistical accumulators 
         self.totalWaitTime += waitTime 
 
         #get available teller
         teller = self.availableTellers.pop(0)
         customer.teller = teller
+        teller.currentCustomer = customer
+        print(f"teller {teller.id} is serving\n")
 
         #generate customer departure time
         serviceTime = self.generateServiceTime(teller.avgServiceRate)
@@ -256,21 +321,15 @@ class SQMSSimulation:
 
     def scheduleTellers(self):
         for t in self.tellerSchedule:
-            shiftStart = t.shiftStart
-            shiftEnd = t.shiftEnd
-            #lunch break starts midway through shift
-            lunch_start = shiftStart+(shiftEnd-shiftStart)/2
-            #lunch is 30 minutes
-            lunch_end = lunch_start + 30
-            
+
             #add arrival event to the FEL at tellers shift start time
-            self.futureEventList.put(Event("teller arrival",shiftStart, t))
+            self.futureEventList.put(Event("teller arrival",t.shiftStart, t))
             #add departure event to FEL to leave for lunch break
-            self.futureEventList.put(Event("scheduled teller departure",lunch_start, t))        
-            #add arrival event to FEL for return from lunch break
-            self.futureEventList.put(Event("teller arrival",lunch_end, t))                    
+            self.futureEventList.put(Event("scheduled teller departure",t.lunchStart, t))  
+            #self.futureEventList.put(Event("teller departure",t.lunchStart, t))                           
             #add departure event to FEL for clock out
-            self.futureEventList.put(Event("scheduled teller departure",shiftEnd, t))      
+            self.futureEventList.put(Event("scheduled teller departure",t.shiftEnd, t))
+           # self.futureEventList.put(Event("teller departure",t.shiftEnd, t))       
 
     #generate random interarrival time from normal distribution
     def generateInterarrivalTime(self) -> float:
@@ -303,13 +362,17 @@ class SQMSSimulation:
 
 
 
+
+
 def main():
-    lvl1_serviceRate = 0.2
+    lvl1_serviceRate = 0.18
     lvl2_serviceRate = 0.1
 
+
     tellerSchedule = [
-        Teller(0,8*60,lvl1_serviceRate,1),
-        Teller(2*60,10*60,lvl2_serviceRate,2),
+        #Teller(start,end,lunch,service rate, id)
+        Teller(0,8*60,4*60,lvl1_serviceRate,1),
+        Teller(2*60,10*60,8*60,lvl2_serviceRate,2),
     ]
 
     def meanArrivalRate(t): 
