@@ -99,11 +99,12 @@ class Event:
 class SQMSSimulation:
     #input parameters are statistical parameters for random generation of interarrival and service time 
     # along with number of customers to serve (stopping criteria of the simulation) 
-    def __init__(self, meanArrivalRate, maxArrivalRate, tellerSchedule, closeTime) -> None:
+    def __init__(self, meanArrivalRate, maxArrivalRate, tellerSchedule, closeTime, debug = False) -> None:
         self.meanArrivalRate = meanArrivalRate 
         self.maxArrivalRate = maxArrivalRate
         self.tellerSchedule = tellerSchedule
         self.closeTime = closeTime #stopping criteria - number of total customers to serve
+        self.debug = debug
 
     #define the system state at time 0
     #start simulation
@@ -140,10 +141,10 @@ class SQMSSimulation:
 
         serverUtilization = 0
         for t in self.allTellers:
-            serverUtilization += t.busyTime/(t.shiftEnd - t.shiftStart)
+            serverUtilization += t.busyTime/(t.shiftEnd - t.shiftStart-30)
         serverUtilization /= len(self.allTellers)
 
-        print(f"Customers remaining in queue: %.2f\n" % len(self.customerQueue))
+        print(f"Customers remaining in queue: %d\n" % len(self.customerQueue))
         print(f"Time-average server utilization: %.2f\n" % serverUtilization)
         print(f"Average system time: %.2f\n" % (self.totalSystemTime/self.customersServed))
         print(f"Average wait time: %.2f\n" % (self.totalWaitTime/self.customersServed))
@@ -183,7 +184,8 @@ class SQMSSimulation:
     def handleTellerArrival(self, event: Event) -> None:
         teller = event.entity
 
-        print(f'Teller "{teller.id}" has arrived at %.2f min' % self.clock)
+        if self.debug:
+            print(f'Teller "{teller.id}" has arrived at %.2f min' % self.clock)
         #add teller to active teller list 
         self.availableTellers.append(teller)
         # add teller to all teller list if they are starting their shift
@@ -208,7 +210,8 @@ class SQMSSimulation:
         else:
             #departure time is one mili minute after customer daprture time 
             departureTime = teller.currentCustomer.departureTime
-            print(f"{teller.id} was busy\n")
+            if self.debug:
+                print(f"{teller.id} was busy\n")
 
         self.futureEventList.put(Event("teller departure",departureTime, teller)) 
 
@@ -219,8 +222,8 @@ class SQMSSimulation:
             #add arrival event to FEL for return from lunch break, 30 minutes later
             self.futureEventList.put(Event("teller arrival",self.clock+30, teller))  
             
-
-        print(f"Teller {teller.id} has departed at {self.clock}\n")
+        if self.debug:
+            print(f"Teller {teller.id} has departed at {self.clock}\n")
 
         #remove teller from active teller list 
         self.availableTellers.remove(teller)
@@ -233,7 +236,8 @@ class SQMSSimulation:
         #set customer id
         customer.id = self.customersArrived
        
-        print(f'Arrival of customer "{customer.id}": %.2f min\n' % self.clock)
+        if self.debug:
+            print(f'Arrival of customer "{customer.id}": %.2f min\n' % self.clock)
         
         #add customer to the queue
         self.customerQueue.append(customer)
@@ -255,8 +259,9 @@ class SQMSSimulation:
         
         #print custer service time
         systemTime = customer.departureTime - customer.arrivalTime
-        print(f'Total system time for customer "{customer.id}": %.2f min' % systemTime)
-        print(f'Served by teller "{teller.id}"\n')
+        if self.debug:
+            print(f'Total system time for customer "{customer.id}": %.2f min' % systemTime)
+            print(f'Served by teller "{teller.id}"\n')
         
         #set tellers currentCustomer to None
         teller.currentCustomer = None
@@ -299,7 +304,8 @@ class SQMSSimulation:
         customer = self.customerQueue.pop(0)
         waitTime = self.clock - customer.arrivalTime
         #print their wait time 
-        print(f'Waiting time for customer "{customer.id}": %.2f min' % waitTime)
+        if self.debug:
+            print(f'Waiting time for customer "{customer.id}": %.2f min' % waitTime)
         
         #update statistical accumulators 
         self.totalWaitTime += waitTime 
@@ -308,7 +314,8 @@ class SQMSSimulation:
         teller = self.availableTellers.pop(0)
         customer.teller = teller
         teller.currentCustomer = customer
-        print(f"teller {teller.id} is serving\n")
+        if self.debug:
+            print(f"teller {teller.id} is serving\n")
 
         #generate customer departure time
         serviceTime = self.generateServiceTime(teller.avgServiceRate)
