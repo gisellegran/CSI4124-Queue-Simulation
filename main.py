@@ -186,7 +186,9 @@ class SQMSSimulation:
         print(f'Teller "{teller.id}" has arrived at %.2f min' % self.clock)
         #add teller to active teller list 
         self.availableTellers.append(teller)
-        self.allTellers.append(teller)
+        # add teller to all teller list if they are starting their shift
+        if teller.lunchTaken == False: 
+            self.allTellers.append(teller)
 
         #if there's a customer in the queue, serve them
         if len(self.customerQueue) > 0:
