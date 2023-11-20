@@ -287,10 +287,7 @@ class SQMSSimulation:
     #add arrival of new customer event to the FEL
     def scheduleCustomerArrival(self) -> None:
         #generate arrival time
-        if self.customersArrived == 0: #don't generate interaarival for first customer
-            arrivalTime = 0
-        else:
-            arrivalTime = self.clock + self.generateInterarrivalTime()
+        arrivalTime = self.clock + self.generateInterarrivalTime()
 
         #only schedule customer if they arrive before close time of the bank
         if arrivalTime < self.closeTime:
